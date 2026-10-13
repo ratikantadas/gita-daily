@@ -1,46 +1,53 @@
-"""Post the next Bhagavad-gita poster to Instagram (Instagram Graph API).
+"""Post the next Bhagavad-gita poster to one or more Instagram accounts.
 
-Runs inside GitHub Actions. Needs two repository secrets:
-  IG_USER_ID       - the Instagram Business/Creator account ID
-  IG_ACCESS_TOKEN  - a long-lived (non-expiring Page) access token
-Posters are served from this public repo via raw.githubusercontent.com.
+Runs inside GitHub Actions. Each account needs two repository secrets:
+  temple (existing):  IG_USER_ID            + IG_ACCESS_TOKEN
+  Ratikanta Das:      IG_USER_ID_RATIKANTA  + IG_ACCESS_TOKEN_RATIKANTA
+  GITA For YOUth:     IG_USER_ID_GFY        + IG_ACCESS_TOKEN_GFY
+Accounts whose secrets are empty are skipped. Each account keeps its own
+progress in posted.json, so a newly added account starts from 1.1.
 """
 import json, os, sys, time, urllib.parse, urllib.request, urllib.error, datetime
 
-GRAPH = "https://graph.facebook.com/" + os.environ.get("GRAPH_VERSION", "v23.0")
-IG = os.environ.get("IG_USER_ID", "").strip()
-TOKEN = os.environ.get("IG_ACCESS_TOKEN", "").strip()
+GRAPH = "https://graph.facebook.com/" + (os.environ.get("GRAPH_VERSION") or "v23.0")
 REPO = os.environ.get("GITHUB_REPOSITORY", "")
 BRANCH = os.environ.get("GITHUB_REF_NAME", "main")
 DRY = os.environ.get("DRY_RUN", "false").lower() == "true"
 BASE = f"https://raw.githubusercontent.com/{REPO}/{BRANCH}/posters/"
 
+ACCOUNTS = [  # (key in posted.json, user-id env, token env)
+    ("main", "IG_USER_ID", "IG_ACCESS_TOKEN"),
+    ("ratikanta", "IG_USER_ID_RATIKANTA", "IG_ACCESS_TOKEN_RATIKANTA"),
+    ("gfy", "IG_USER_ID_GFY", "IG_ACCESS_TOKEN_GFY"),
+]
 
-def call(method, path, **params):
-    params["access_token"] = TOKEN
+
+class ApiError(Exception):
+    pass
+
+
+def call(token, method, path, **params):
+    params["access_token"] = token
     data = urllib.parse.urlencode(params).encode()
     url = f"{GRAPH}/{path}"
-    if method == "GET":
-        req = urllib.request.Request(url + "?" + data.decode())
-    else:
-        req = urllib.request.Request(url, data=data, method="POST")
+    req = (urllib.request.Request(url + "?" + data.decode()) if method == "GET"
+           else urllib.request.Request(url, data=data, method="POST"))
     try:
         with urllib.request.urlopen(req, timeout=60) as r:
             return json.load(r)
     except urllib.error.HTTPError as e:
-        body = e.read().decode(errors="replace")
-        sys.exit(f"Instagram API error on {path}: {e.code} {body}")
+        raise ApiError(f"{path}: {e.code} {e.read().decode(errors='replace')}")
 
 
-def wait_ready(cid):
+def wait_ready(token, cid):
     for _ in range(30):
-        st = call("GET", cid, fields="status_code").get("status_code")
+        st = call(token, "GET", cid, fields="status_code").get("status_code")
         if st == "FINISHED":
             return
         if st in ("ERROR", "EXPIRED"):
-            sys.exit(f"Container {cid} failed: {st}")
+            raise ApiError(f"container {cid} failed: {st}")
         time.sleep(5)
-    sys.exit(f"Container {cid} not ready in time")
+    raise ApiError(f"container {cid} not ready in time")
 
 
 def url_ok(u):
@@ -51,40 +58,58 @@ def url_ok(u):
         return False
 
 
-def main():
-    if not IG or not TOKEN:
-        sys.exit("Missing IG_USER_ID or IG_ACCESS_TOKEN secret.")
-    queue = json.load(open("schedule.json", encoding="utf-8"))
-    posted = json.load(open("posted.json", encoding="utf-8"))
-    done = {p["verse"] for p in posted}
-    nxt = next((q for q in queue if q["verse"] not in done), None)
-    if not nxt:
-        print("All verses already posted. Hare Krishna!")
-        return
-    urls = [BASE + urllib.parse.quote(f) for f in nxt["files"]]
-    print("Next verse:", nxt["verse"], urls)
+def publish(ig, token, item):
+    urls = [BASE + urllib.parse.quote(f) for f in item["files"]]
     for u in urls:
         if not url_ok(u):
-            sys.exit(f"Image not reachable (is the repo public and the file uploaded to posters/?): {u}")
-
-    if DRY:
-        me = call("GET", IG, fields="username,media_count")
-        print(f"DRY RUN OK - token works for @{me.get('username')}; images reachable. Nothing posted.")
-        return
-
+            raise ApiError(f"image not reachable: {u}")
     if len(urls) == 1:
-        cid = call("POST", f"{IG}/media", image_url=urls[0], caption=nxt["caption"])["id"]
+        cid = call(token, "POST", f"{ig}/media", image_url=urls[0], caption=item["caption"])["id"]
     else:
-        kids = [call("POST", f"{IG}/media", image_url=u, is_carousel_item="true")["id"] for u in urls]
+        kids = [call(token, "POST", f"{ig}/media", image_url=u, is_carousel_item="true")["id"] for u in urls]
         for k in kids:
-            wait_ready(k)
-        cid = call("POST", f"{IG}/media", media_type="CAROUSEL", children=",".join(kids), caption=nxt["caption"])["id"]
-    wait_ready(cid)
-    mid = call("POST", f"{IG}/media_publish", creation_id=cid)["id"]
-    posted.append({"verse": nxt["verse"], "media_id": mid,
-                   "posted_at": datetime.datetime.utcnow().isoformat(timespec="seconds") + "Z"})
+            wait_ready(token, k)
+        cid = call(token, "POST", f"{ig}/media", media_type="CAROUSEL",
+                   children=",".join(kids), caption=item["caption"])["id"]
+    wait_ready(token, cid)
+    return call(token, "POST", f"{ig}/media_publish", creation_id=cid)["id"]
+
+
+def main():
+    queue = json.load(open("schedule.json", encoding="utf-8"))
+    posted = json.load(open("posted.json", encoding="utf-8"))
+    if isinstance(posted, list):          # old single-account format
+        posted = {"main": posted}
+    failures, active = [], 0
+    for key, id_env, tok_env in ACCOUNTS:
+        ig, token = os.environ.get(id_env, "").strip(), os.environ.get(tok_env, "").strip()
+        if not ig or not token:
+            print(f"[{key}] not configured - skipped")
+            continue
+        active += 1
+        try:
+            who = call(token, "GET", ig, fields="username").get("username")
+            hist = posted.setdefault(key, [])
+            done = {p["verse"] for p in hist}
+            nxt = next((q for q in queue if q["verse"] not in done), None)
+            if not nxt:
+                print(f"[{key}] @{who}: all verses posted. Hare Krishna!")
+                continue
+            if DRY:
+                print(f"[{key}] DRY RUN OK - token works for @{who}; next verse {nxt['verse']}")
+                continue
+            mid = publish(ig, token, nxt)
+            hist.append({"verse": nxt["verse"], "media_id": mid,
+                         "posted_at": datetime.datetime.utcnow().isoformat(timespec="seconds") + "Z"})
+            print(f"[{key}] @{who}: posted {nxt['verse']} -> {mid} ({len(hist)}/{len(queue)})")
+        except ApiError as e:
+            print(f"[{key}] FAILED: {e}")
+            failures.append(key)
     json.dump(posted, open("posted.json", "w", encoding="utf-8"), ensure_ascii=False, indent=1)
-    print(f"Posted {nxt['verse']} -> media {mid} ({len(posted)}/{len(queue)})")
+    if not active:
+        sys.exit("No Instagram account configured (check repository secrets).")
+    if failures:
+        sys.exit(f"Failed for: {', '.join(failures)} (other accounts were posted).")
 
 
 if __name__ == "__main__":

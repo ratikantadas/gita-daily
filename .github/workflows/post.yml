@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "Test only (checks token and images, posts nothing)"
+        description: "Test only (checks tokens and images, posts nothing)"
         type: boolean
         default: true
 
@@ -29,10 +29,15 @@ jobs:
         env:
           IG_USER_ID: ${{ secrets.IG_USER_ID }}
           IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+          IG_USER_ID_RATIKANTA: ${{ secrets.IG_USER_ID_RATIKANTA }}
+          IG_ACCESS_TOKEN_RATIKANTA: ${{ secrets.IG_ACCESS_TOKEN_RATIKANTA }}
+          IG_USER_ID_GFY: ${{ secrets.IG_USER_ID_GFY }}
+          IG_ACCESS_TOKEN_GFY: ${{ secrets.IG_ACCESS_TOKEN_GFY }}
           GRAPH_VERSION: ${{ vars.GRAPH_VERSION || 'v23.0' }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
         run: python post.py
       - name: Save progress
+        if: always()
         run: |
           git config user.name "gita-bot"
           git config user.email "gita-bot@users.noreply.github.com"
