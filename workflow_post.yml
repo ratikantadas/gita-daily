@@ -1,0 +1,40 @@
+name: Daily Gita post
+
+on:
+  schedule:
+    - cron: "0 1 * * *"   # 01:00 UTC = 6:30 AM IST, every day
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Test only (checks token and images, posts nothing)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gita-post
+  cancel-in-progress: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Post next verse
+        env:
+          IG_USER_ID: ${{ secrets.IG_USER_ID }}
+          IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+          GRAPH_VERSION: ${{ vars.GRAPH_VERSION || 'v23.0' }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
+        run: python post.py
+      - name: Save progress
+        run: |
+          git config user.name "gita-bot"
+          git config user.email "gita-bot@users.noreply.github.com"
+          git add posted.json
+          git diff --cached --quiet || (git commit -m "Posted next Gita verse" && git push)
