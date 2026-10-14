@@ -2,7 +2,7 @@ name: Daily Gita post
 
 on:
   schedule:
-    - cron: "0 1 * * *"   # 01:00 UTC = 6:30 AM IST, every day
+    - cron: "40 0 * * *"   # 6:10 AM IST, every day
   workflow_dispatch:
     inputs:
       dry_run:
