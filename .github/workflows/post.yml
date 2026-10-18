@@ -2,13 +2,17 @@ name: Daily Gita post
 
 on:
   schedule:
-    - cron: "0 1 * * *"   # 01:00 UTC = 6:30 AM IST, every day
+    - cron: "40 0 * * *"   # backup timer, 6:10 AM IST (main trigger: cron-job.org)
   workflow_dispatch:
     inputs:
       dry_run:
         description: "Test only (checks tokens and images, posts nothing)"
         type: boolean
         default: true
+      force:
+        description: "Post even if already posted today"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -33,7 +37,10 @@ jobs:
           IG_ACCESS_TOKEN_RATIKANTA: ${{ secrets.IG_ACCESS_TOKEN_RATIKANTA }}
           IG_USER_ID_GFY: ${{ secrets.IG_USER_ID_GFY }}
           IG_ACCESS_TOKEN_GFY: ${{ secrets.IG_ACCESS_TOKEN_GFY }}
+          LI_ACCESS_TOKEN: ${{ secrets.LI_ACCESS_TOKEN }}
+          LI_VERSION: ${{ vars.LI_VERSION }}
           GRAPH_VERSION: ${{ vars.GRAPH_VERSION || 'v23.0' }}
+          FORCE: ${{ github.event_name == 'workflow_dispatch' && inputs.force || 'false' }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
         run: python post.py
       - name: Save progress
