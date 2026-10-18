@@ -4,7 +4,10 @@ Runs inside GitHub Actions. Each account needs two repository secrets (empty = s
   temple:          IG_USER_ID            + IG_ACCESS_TOKEN
   Ratikanta Das:   IG_USER_ID_RATIKANTA  + IG_ACCESS_TOKEN_RATIKANTA
   GITA For YOUth:  IG_USER_ID_GFY        + IG_ACCESS_TOKEN_GFY
+<<<<<<< HEAD
 LinkedIn personal profile:  LI_ACCESS_TOKEN  (60-day token from LinkedIn's token generator)
+=======
+>>>>>>> b141cd5e7f1459344b10f92711f2cb415532bfe7
 Each account keeps its own progress in posted.json. A second run on the same day
 (IST) does nothing unless FORCE is set, so extra triggers never double-post.
 """
@@ -30,7 +33,10 @@ DESTINATIONS = [  # (progress key, platform, id env, token env)
     ("main", "ig", "IG_USER_ID", "IG_ACCESS_TOKEN"),
     ("ratikanta", "ig", "IG_USER_ID_RATIKANTA", "IG_ACCESS_TOKEN_RATIKANTA"),
     ("gfy", "ig", "IG_USER_ID_GFY", "IG_ACCESS_TOKEN_GFY"),
+<<<<<<< HEAD
     ("linkedin", "li", "LI_ACCESS_TOKEN", "LI_ACCESS_TOKEN"),
+=======
+>>>>>>> b141cd5e7f1459344b10f92711f2cb415532bfe7
 ]
 LI_VERSION = os.environ.get("LI_VERSION") or "202508"
 WA_LINK = "https://chat.whatsapp.com/KlP6IdSn2dE2ZZ3wHsaXau"
@@ -160,11 +166,15 @@ def main():
             continue
         active += 1
         try:
+<<<<<<< HEAD
             if platform == "li":
                 target, name = li_who(token)
                 who = f"LinkedIn {name}"
             else:
                 who = "@" + call(token, "GET", target, fields="username").get("username", "?")
+=======
+            who = "@" + call(token, "GET", target, fields="username").get("username", "?")
+>>>>>>> b141cd5e7f1459344b10f92711f2cb415532bfe7
             hist = posted.setdefault(key, [])
             done = {p["verse"] for p in hist}
             nxt = next((q for q in queue if q["verse"] not in done), None)
@@ -177,7 +187,11 @@ def main():
             if DRY:
                 print(f"[{key}] DRY RUN OK - token works for {who}; next verse {nxt['verse']}")
                 continue
+<<<<<<< HEAD
             mid = (publish_li if platform == "li" else publish_ig)(target, token, nxt)
+=======
+            mid = publish_ig(target, token, nxt)
+>>>>>>> b141cd5e7f1459344b10f92711f2cb415532bfe7
             hist.append({"verse": nxt["verse"], "media_id": mid,
                          "posted_at": datetime.datetime.utcnow().isoformat(timespec="seconds") + "Z"})
             print(f"[{key}] {who}: posted {nxt['verse']} -> {mid} ({len(hist)}/{len(queue)})")
